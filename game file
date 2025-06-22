@@ -1,0 +1,360 @@
+import pygame
+import sys
+
+pygame.init()
+
+WIDTH, HEIGHT = 800, 600
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("Mario & Luigi - Bowser's Castle Axe Event")
+
+WHITE = (255, 255, 255)
+RED = (220, 20, 60)
+GREEN = (34, 177, 76)
+CASTLE_GRAY = (120, 120, 120)
+CASTLE_RED = (200, 40, 40)
+CASTLE_YELLOW = (230, 230, 80)
+BLACK = (0, 0, 0)
+BOWSER_COLOR = (80, 40, 30)
+AXE_COLOR = (180, 180, 180)
+PEACH_DRESS = (255, 182, 193)
+PEACH_SKIN = (255, 228, 196)
+PEACH_HAIR = (255, 210, 60)
+LAVA_COLOR = (255, 77, 0)
+SKY_BLUE = (120, 180, 255)
+GROUND_GREEN = (80, 200, 80)
+CLOUD_WHITE = (250, 250, 250)
+SUN_YELLOW = (255, 255, 128)
+MOUNTAIN_GRAY = (170, 170, 170)
+BRICK_GRAY = (140, 140, 140)
+PLATFORM_ORANGE = (255, 120, 40)
+
+clock = pygame.time.Clock()
+FPS = 60
+
+PLAYER_SIZE = (50, 50)
+GRAVITY = 0.8
+JUMP_POWER = -15
+SPEED = 5
+
+LEVEL_COUNT = 20
+
+pygame.mixer.init()
+bowser_fall_sound = pygame.mixer.Sound("bowser_fall.wav")
+bowser_fall_sound.set_volume(0.7)
+
+# Mario (arrows)
+mario = pygame.Rect(100, 500, *PLAYER_SIZE)
+mario_vel = [0, 0]
+mario_on_ground = False
+
+# Luigi (WASD)
+luigi = pygame.Rect(200, 500, *PLAYER_SIZE)
+luigi_vel = [0, 0]
+luigi_on_ground = False
+
+bowser_w = 60
+bowser_h = 80
+bridge_chopped = False
+bowser_falling = False
+bowser_fall_y = 0
+bowser_fall_vy = 0
+bowser_sound_played = False
+axe_rect = pygame.Rect(600, 450, 40, 40)
+show_cutscene = False
+cutscene_timer = 0
+hero_run = False
+hero_x = 0
+hero_y = 0
+hero_speed = 10
+hero_reached_peach = False
+hero_is_mario = True
+
+font = pygame.font.SysFont(None, 36)
+
+levels = []
+for i in range(LEVEL_COUNT):
+    if i == 3:
+        levels.append({
+            "bg": (44, 44, 60),
+            "castle_exit": pygame.Rect(700, 450, 60, 80),
+            "lava": pygame.Rect(400, 520, 200, 30),
+            "bowser": pygame.Rect(500, 440, bowser_w, bowser_h),
+            "axe": pygame.Rect(600, 450, 40, 40),
+            "peach_x": 700,
+            "peach_y": 390,
+            "label": "Level 4",
+        })
+    elif i == 19:
+        levels.append({
+            "bg": (24, 24, 44),
+            "castle_exit": pygame.Rect(700, 450, 60, 80),
+            "lava": pygame.Rect(400, 520, 200, 30),
+            "bowser": pygame.Rect(500, 440, bowser_w, bowser_h),
+            "axe": pygame.Rect(600, 450, 40, 40),
+            "peach_x": 700,
+            "peach_y": 390,
+            "label": "FINAL LEVEL",
+        })
+    else:
+        plat_height = 550 - (i % 5) * 30
+        exit_w = 60 + (i % 3) * 20
+        exit_h = 80 + (i % 4) * 10
+        levels.append({
+            "bg": (44 + i*2 % 80, 44 + i*3 % 80, 60 + i*4 % 80),
+            "castle_exit": pygame.Rect(700, plat_height - exit_h + 80, exit_w, exit_h),
+            "plat_height": plat_height,
+            "label": f"Level {i+1}",
+        })
+
+current_level = 0
+game_won = False
+
+def handle_mario(keys, rect, vel, on_ground):
+    vel[0] = 0
+    if keys[pygame.K_LEFT]:
+        vel[0] = -SPEED
+    if keys[pygame.K_RIGHT]:
+        vel[0] = SPEED
+    if (keys[pygame.K_UP]) and on_ground:
+        vel[1] = JUMP_POWER
+
+def handle_luigi(keys, rect, vel, on_ground):
+    vel[0] = 0
+    if keys[pygame.K_a]:
+        vel[0] = -SPEED
+    if keys[pygame.K_d]:
+        vel[0] = SPEED
+    if (keys[pygame.K_w]) and on_ground:
+        vel[1] = JUMP_POWER
+
+def draw_background(level, idx):
+    if idx == 3 or idx == 19:
+        # Lava castle background inspired by the reference image 1
+        screen.fill(BLACK)
+        # Brick top
+        for x in range(0, WIDTH, 40):
+            pygame.draw.rect(screen, BRICK_GRAY, (x, 50, 39, 30))
+        # Brick left wall
+        for y in range(80, HEIGHT, 40):
+            pygame.draw.rect(screen, BRICK_GRAY, (20, y, 39, 39))
+        # Brick bottom
+        for x in range(0, WIDTH, 40):
+            pygame.draw.rect(screen, BRICK_GRAY, (x, 550, 39, 39))
+        # Brick right wall
+        for y in range(80, HEIGHT, 40):
+            pygame.draw.rect(screen, BRICK_GRAY, (WIDTH-60, y, 39, 39))
+        # Platforms (middle, upper)
+        pygame.draw.rect(screen, BRICK_GRAY, (180, 200, 260, 30))
+        pygame.draw.rect(screen, BRICK_GRAY, (80, 120, 250, 30))
+        # Floating orange platform
+        pygame.draw.rect(screen, PLATFORM_ORANGE, (530, 260, 70, 16))
+        # Red bridge above lava
+        pygame.draw.rect(screen, (200, 0, 0), (400, 495, 200, 15))
+        # Lava with white "teeth"
+        pygame.draw.rect(screen, LAVA_COLOR, (400, 510, 200, 40))
+        for i in range(20):
+            pygame.draw.polygon(screen, WHITE, [
+                (400 + i*10, 510),
+                (405 + i*10, 520),
+                (410 + i*10, 510)
+            ])
+    else:
+        # Normal outdoor background
+        screen.fill(SKY_BLUE)
+        pygame.draw.circle(screen, SUN_YELLOW, (80, 80), 50)
+        pygame.draw.ellipse(screen, CLOUD_WHITE, (180, 60, 120, 40))
+        pygame.draw.ellipse(screen, CLOUD_WHITE, (400, 100, 160, 50))
+        pygame.draw.ellipse(screen, CLOUD_WHITE, (650, 70, 80, 30))
+        pygame.draw.polygon(screen, MOUNTAIN_GRAY, [(100,500), (180,330), (260,500)])
+        pygame.draw.polygon(screen, MOUNTAIN_GRAY, [(300,500), (400,350), (500,500)])
+        pygame.draw.polygon(screen, (130,130,130), [(600,500), (690,370), (780,500)])
+        ground_y = level.get("plat_height", 550)
+        pygame.draw.rect(screen, GROUND_GREEN, (0, ground_y, WIDTH, HEIGHT - ground_y))
+
+def draw_castle(level, show_exit=True):
+    pygame.draw.rect(screen, CASTLE_GRAY, (600, 350, 200, 200))
+    pygame.draw.polygon(screen, CASTLE_RED, [(600, 390), (700, 320), (800, 390)])
+    if show_exit:
+        pygame.draw.rect(screen, BLACK, level["castle_exit"])
+
+def draw_peach(x, y):
+    pygame.draw.circle(screen, PEACH_HAIR, (x+16, y+10), 13)
+    pygame.draw.circle(screen, PEACH_SKIN, (x+16, y+14), 13)
+    pygame.draw.rect(screen, PEACH_DRESS, (x+4, y+27, 24, 30))
+
+def draw_bowser(rect):
+    pygame.draw.rect(screen, BOWSER_COLOR, rect)
+
+while True:
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            pygame.quit()
+            sys.exit()
+
+    keys = pygame.key.get_pressed()
+    level = levels[current_level]
+
+    # Handle cutscene for level 4 or 20
+    if (current_level == 3 or current_level == 19) and not game_won:
+        if show_cutscene:
+            cutscene_timer += 1
+            draw_background(level, current_level)
+            draw_castle(level, show_exit=False)
+            pygame.draw.rect(screen, LAVA_COLOR, level["lava"])
+            draw_peach(level["peach_x"], level["peach_y"])
+            # Bowser falls into lava
+            if not bowser_falling:
+                bowser_fall_y = level["bowser"].y
+                bowser_fall_vy = 0
+                bowser_falling = True
+                bowser_sound_played = False
+            bowser_fall_vy += 1.3
+            bowser_fall_y += bowser_fall_vy
+            bowser_rect_fall = pygame.Rect(level["bowser"].x, int(bowser_fall_y), bowser_w, bowser_h)
+            if bowser_fall_y < level["lava"].y - 10:
+                draw_bowser(bowser_rect_fall)
+            else:
+                if not bowser_sound_played:
+                    bowser_fall_sound.play()
+                    bowser_sound_played = True
+                pygame.draw.circle(screen, LAVA_COLOR, (bowser_rect_fall.centerx, level["lava"].y), 35)
+            # Hero runs to Peach
+            if not hero_reached_peach:
+                if hero_is_mario:
+                    pygame.draw.rect(screen, RED, (hero_x, hero_y, PLAYER_SIZE[0], PLAYER_SIZE[1]))
+                else:
+                    pygame.draw.rect(screen, GREEN, (hero_x, hero_y, PLAYER_SIZE[0], PLAYER_SIZE[1]))
+                if hero_x < level["peach_x"] - 20:
+                    hero_x += hero_speed
+                else:
+                    hero_reached_peach = True
+            else:
+                if hero_is_mario:
+                    pygame.draw.rect(screen, RED, (hero_x, hero_y, PLAYER_SIZE[0], PLAYER_SIZE[1]))
+                else:
+                    pygame.draw.rect(screen, GREEN, (hero_x, hero_y, PLAYER_SIZE[0], PLAYER_SIZE[1]))
+                draw_peach(level["peach_x"], level["peach_y"])
+            cutscene_text = "Mario rushes to save Princess Peach!" if hero_is_mario else "Luigi rushes to save Princess Peach!"
+            if hero_reached_peach:
+                cutscene_text = "You did it!" if current_level == 3 else "YOU WIN!"
+            cut_text = font.render(cutscene_text, True, WHITE)
+            screen.blit(cut_text, (110, 40))
+            if cutscene_timer > 180:
+                if current_level < LEVEL_COUNT - 1:
+                    current_level += 1
+                    plat_height = levels[current_level].get("plat_height", 550)
+                    mario.x, mario.y = 100, plat_height - PLAYER_SIZE[1]
+                    luigi.x, luigi.y = 200, plat_height - PLAYER_SIZE[1]
+                    mario_vel = [0, 0]
+                    luigi_vel = [0, 0]
+                    show_cutscene = False
+                    hero_run = False
+                    hero_reached_peach = False
+                    bridge_chopped = False
+                    bowser_falling = False
+                    bowser_sound_played = False
+                    cutscene_timer = 0
+                else:
+                    game_won = True
+            pygame.display.flip()
+            clock.tick(FPS)
+            continue
+
+        # Gameplay for level 4/20
+        handle_mario(keys, mario, mario_vel, mario_on_ground)
+        handle_luigi(keys, luigi, luigi_vel, luigi_on_ground)
+
+        mario_vel[1] += GRAVITY
+        luigi_vel[1] += GRAVITY
+
+        mario.x += mario_vel[0]
+        mario.y += mario_vel[1]
+        if mario.y > 550:
+            mario.y = 550
+            mario_vel[1] = 0
+            mario_on_ground = True
+        else:
+            mario_on_ground = False
+
+        luigi.x += luigi_vel[0]
+        luigi.y += luigi_vel[1]
+        if luigi.y > 550:
+            luigi.y = 550
+            luigi_vel[1] = 0
+            luigi_on_ground = True
+        else:
+            luigi_on_ground = False
+
+        # Trigger cutscene by touching axe
+        if mario.colliderect(level["axe"]) or luigi.colliderect(level["axe"]):
+            show_cutscene = True
+            hero_is_mario = mario.colliderect(level["axe"])
+            hero_x = level["axe"].x
+            hero_y = level["axe"].y
+            hero_run = True
+            hero_reached_peach = False
+            cutscene_timer = 0
+
+        draw_background(level, current_level)
+        draw_castle(level)
+        pygame.draw.rect(screen, LAVA_COLOR, level["lava"])
+        pygame.draw.rect(screen, AXE_COLOR, level["axe"])
+        draw_peach(level["peach_x"], level["peach_y"])
+        draw_bowser(level["bowser"])
+        pygame.draw.rect(screen, RED, mario)
+        pygame.draw.rect(screen, GREEN, luigi)
+        label_text = font.render(level["label"], True, WHITE)
+        screen.blit(label_text, (20, 20))
+        pygame.display.flip()
+        clock.tick(FPS)
+        continue
+
+    # Regular levels with background
+    handle_mario(keys, mario, mario_vel, mario_on_ground)
+    handle_luigi(keys, luigi, luigi_vel, luigi_on_ground)
+
+    mario_vel[1] += GRAVITY
+    luigi_vel[1] += GRAVITY
+
+    mario.x += mario_vel[0]
+    mario.y += mario_vel[1]
+    plat_height = level.get("plat_height", 550)
+    if mario.y > plat_height:
+        mario.y = plat_height
+        mario_vel[1] = 0
+        mario_on_ground = True
+    else:
+        mario_on_ground = False
+
+    luigi.x += luigi_vel[0]
+    luigi.y += luigi_vel[1]
+    if luigi.y > plat_height:
+        luigi.y = plat_height
+        luigi_vel[1] = 0
+        luigi_on_ground = True
+    else:
+        luigi_on_ground = False
+
+    # Go to next level by reaching castle exit
+    if mario.colliderect(level["castle_exit"]) or luigi.colliderect(level["castle_exit"]):
+        if current_level < LEVEL_COUNT - 1:
+            current_level += 1
+            plat_height = levels[current_level].get("plat_height", 550)
+            mario.x, mario.y = 100, plat_height - PLAYER_SIZE[1]
+            luigi.x, luigi.y = 200, plat_height - PLAYER_SIZE[1]
+            mario_vel = [0, 0]
+            luigi_vel = [0, 0]
+        else:
+            game_won = True
+
+    draw_background(level, current_level)
+    draw_castle(level)
+    pygame.draw.rect(screen, RED, mario)
+    pygame.draw.rect(screen, GREEN, luigi)
+    label_text = font.render(level["label"], True, WHITE)
+    screen.blit(label_text, (20, 20))
+    if game_won:
+        win_text = font.render("YOU WIN!", True, (255, 255, 0))
+        screen.blit(win_text, (WIDTH // 2 - 100, HEIGHT // 2))
+    pygame.display.flip()
+    clock.tick(FPS)
